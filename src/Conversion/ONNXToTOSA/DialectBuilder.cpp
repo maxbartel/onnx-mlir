@@ -23,6 +23,84 @@ using namespace mlir;
 
 namespace onnx_mlir {
 
+static bool containsNonZero(llvm::SmallVectorImpl<int64_t> &values) {
+  return llvm::any_of(values, [](int64_t value) { return value != 0; });
+}
+
+FailureOr<Value> TosaBuilder::resizeWindowBasedOps(mlir::Value &value,
+    const llvm::ArrayRef<int64_t> inputShape,
+    const llvm::ArrayRef<int64_t> weightSpatialShape,
+    llvm::SmallVectorImpl<int64_t> &padding,
+    const llvm::ArrayRef<int64_t> strides,
+    const llvm::ArrayRef<int64_t> dilation) {
+
+  // Get number of unused values of padded input
+  auto getOffset = [](int64_t inputDimension, int64_t outputDimension,
+                       int64_t kernelDimension, int64_t padFront,
+                       int64_t padBack, int64_t stride, int64_t dilation) {
+    int64_t offset = inputDimension + padFront + padBack -
+                     dilation * (kernelDimension - 1) - 1 -
+                     outputDimension * stride + stride;
+    assert(offset >= 0);
+    return offset;
+  };
+
+  // Get output dim size
+  auto getOutputSpatialDimension =
+      [](int64_t inputDimension, int64_t kernelDimension, int64_t padFront,
+          int64_t padBack, int64_t stride, int64_t dilation) {
+        int64_t outputSpatialDimension =
+            std::floor((inputDimension + padFront + padBack -
+                        dilation * (kernelDimension - 1) - 1)) /
+                stride +
+            1;
+        return outputSpatialDimension;
+      };
+
+  llvm::SmallVector<int64_t, 2> cellsToCut;
+  llvm::SmallVector<int64_t, 2> cellsToPad;
+  // TOSA only supports 2 spatial dimensions
+  for (int i = 0; i < 2; i++) {
+    int64_t padFront = padding[2 * i];
+    int64_t padBack = padding[2 * i + 1];
+    int64_t outputSpatialDimension =
+        getOutputSpatialDimension(inputShape[i + 1], weightSpatialShape[i],
+            padFront, padBack, strides[i], dilation[i]);
+    int64_t offset = getOffset(inputShape[i + 1], outputSpatialDimension,
+        weightSpatialShape[i], padFront, padBack, strides[i], dilation[i]);
+    if (offset > padBack) {
+      // If offset is bigger than padded values we have to insert a slice op and
+      // padding is set to 0
+      cellsToPad.push_back(0);
+      cellsToCut.push_back(offset - padBack);
+    } else {
+      // Else we calculate the minimal padding needed
+      cellsToPad.push_back(padBack - offset);
+      cellsToCut.push_back(0);
+    }
+  }
+
+  // Fail if the op never uses a value from the unpadded input
+  if ((inputShape[1] - cellsToCut[0] == 0) ||
+      (inputShape[2] - cellsToCut[1] == 0))
+    return rewriter().notifyMatchFailure(
+        loc(), "the operation does not use any value of the input tensor");
+
+  // Insert slice op if needed
+  if (containsNonZero(cellsToCut)) {
+    value = this->slice(value,
+        {inputShape[0], inputShape[1] - cellsToCut[0],
+            inputShape[2] - cellsToCut[1], inputShape[3]},
+        {0, 0, 0, 0});
+  }
+
+  // Update padding to the minimal needed value
+  padding[1] = cellsToPad[0];
+  padding[3] = cellsToPad[1];
+
+  return value;
+}
+
 template <typename T>
 bool TosaBuilder::testNumberOfElementsMatch(
     ArrayRef<T> vec, ArrayRef<int64_t> shape) {
@@ -143,6 +221,18 @@ Value TosaBuilder::transpose(mlir::Value &value, llvm::ArrayRef<int32_t> perm) {
   Value newValue = tosa::CreateOpAndInfer<mlir::tosa::TransposeOp>(
       rewriter(), loc(), newValueType, value, permList);
   return newValue;
+}
+
+Value TosaBuilder::pad(Value &value, llvm::ArrayRef<int64_t> padding) {
+  llvm::SmallVector<int64_t, 8> paddingShape = {(int64_t)padding.size() / 2, 2};
+  Value paddingList = this->getConst(padding, paddingShape);
+  auto outputType = RankedTensorType::get(
+      llvm::SmallVector<int64_t, 4>(padding.size() / 2, ShapedType::kDynamic),
+      cast<RankedTensorType>(value.getType()).getElementType());
+
+  Value pad = tosa::CreateOpAndInfer<mlir::tosa::PadOp>(
+      rewriter(), loc(), outputType, value, paddingList);
+  return pad;
 }
 
 Value TosaBuilder::slice(Value &inputConst, llvm::ArrayRef<int64_t> size,
