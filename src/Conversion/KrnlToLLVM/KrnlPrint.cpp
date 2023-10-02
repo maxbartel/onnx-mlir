@@ -38,7 +38,7 @@ public:
     Location loc = printOp.getLoc();
     KrnlPrintOpAdaptor operandAdaptor(operands);
     MultiDialectBuilder<LLVMBuilder> create(rewriter, loc);
-    auto *typeConverter = static_cast<LLVMTypeConverter *>(getTypeConverter());
+    auto *typeConverter = static_cast<const LLVMTypeConverter *>(getTypeConverter());
 
     Value input = operandAdaptor.getInput();
     StringRef format = printOp.getFormat();

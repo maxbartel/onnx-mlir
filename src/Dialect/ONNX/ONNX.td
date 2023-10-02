@@ -41,6 +41,7 @@ def ONNX_Dialect : Dialect {
   let useDefaultAttributePrinterParser = 0;
   let dependentDialects = ["func::FuncDialect"];
   let hasConstantMaterializer = 1;
+  let usePropertiesForAttributes = 0;
   let extraClassDeclaration = [{
   private:
     // Register the builtin Attributes.

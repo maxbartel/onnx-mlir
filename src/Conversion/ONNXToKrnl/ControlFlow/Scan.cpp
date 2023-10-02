@@ -22,7 +22,8 @@ using namespace mlir;
 namespace onnx_mlir {
 
 struct ONNXScanOpLowering : public OpConversionPattern<ONNXScanOp> {
-  explicit ONNXScanOpLowering(TypeConverter &typeConverter, MLIRContext *ctx)
+  explicit ONNXScanOpLowering(
+      const TypeConverter &typeConverter, MLIRContext *ctx)
       : OpConversionPattern(typeConverter, ctx) {}
 
   LogicalResult matchAndRewrite(ONNXScanOp scanOp, ONNXScanOpAdaptor adaptor,
@@ -39,7 +40,8 @@ struct ONNXScanOpLowering : public OpConversionPattern<ONNXScanOp> {
     // - scan output (all intermediate values returned from body func
     // concatenated together).
     SmallVector<Value, 4> outputs;
-    allocateMemoryForVFinal(loc, rewriter, typeConverter, op, adaptor, outputs);
+    allocateMemoryForVFinal(
+        loc, rewriter, getTypeConverter(), op, adaptor, outputs);
     allocateMemoryForScanOutput(
         loc, rewriter, typeConverter, op, adaptor, outputs);
 
@@ -199,7 +201,7 @@ struct ONNXScanOpLowering : public OpConversionPattern<ONNXScanOp> {
   }
 
   static void allocateMemoryForVFinal(mlir::Location loc,
-      ConversionPatternRewriter &rewriter, TypeConverter *typeConverter,
+      ConversionPatternRewriter &rewriter, const TypeConverter *typeConverter,
       Operation *op, ONNXScanOpAdaptor adaptor,
       SmallVectorImpl<mlir::Value> &outputs) {
     auto scanOp = dyn_cast<ONNXScanOp>(op);
@@ -224,7 +226,7 @@ struct ONNXScanOpLowering : public OpConversionPattern<ONNXScanOp> {
   }
 
   static void allocateMemoryForScanOutput(mlir::Location loc,
-      ConversionPatternRewriter &rewriter, TypeConverter *typeConverter,
+      ConversionPatternRewriter &rewriter, const TypeConverter *typeConverter,
       Operation *op, ONNXScanOpAdaptor adaptor,
       SmallVectorImpl<mlir::Value> &outputs) {
     auto scanOp = dyn_cast<ONNXScanOp>(op);
@@ -275,7 +277,7 @@ struct ONNXScanOpLowering : public OpConversionPattern<ONNXScanOp> {
   }
 
   static mlir::Value allocateMemoryForBodyScanInput(mlir::Location loc,
-      ConversionPatternRewriter &rewriter, TypeConverter *typeConverter,
+      ConversionPatternRewriter &rewriter, const TypeConverter *typeConverter,
       mlir::Type bodyScanInputTy) {
     // Convert type to MemRefType.
     Type convertedType = typeConverter->convertType(bodyScanInputTy);

@@ -157,7 +157,12 @@ void registerMLIRPasses() {
     return mlir::createConvertSCFToCFPass();
   });
   mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
-    return mlir::createConvertVectorToLLVMPass();
+    auto enableOpaquePointers = [](auto options) {
+      options.useOpaquePointers = true;
+      return options;
+    };
+    return mlir::createConvertVectorToLLVMPass(
+        enableOpaquePointers(ConvertVectorToLLVMPassOptions{}));
   });
   mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
     return mlir::createPrintOpStatsPass();

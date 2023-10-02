@@ -30,6 +30,7 @@ def Krnl_Dialect : Dialect {
   let name = "krnl";
   let cppNamespace = "::mlir";
   let useDefaultTypePrinterParser = 1;
+  let usePropertiesForAttributes = 0;
   let dependentDialects = [
     "affine::AffineDialect",
     "arith::ArithDialect",
