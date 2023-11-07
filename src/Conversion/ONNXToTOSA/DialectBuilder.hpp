@@ -48,6 +48,20 @@ struct TosaBuilder : DialectBuilder {
   mlir::Value reshape(mlir::Value &value, llvm::ArrayRef<int64_t> shape);
   mlir::Value reciprocal(mlir::Value &input);
 
+  mlir::Value pad(mlir::Value &value, llvm::ArrayRef<int64_t> padding);
+
+  // TOSA needs all window based ops to apply to
+  // ERROR_IF(OH != idiv_check(IH - 1 + pad_top + pad_bottom - (KH - 1) *
+  // dilation_y, stride_y) + 1)
+  // This functions resizes the input by adjusting the padding and inserting
+  // slice ops to meet the requirements
+  mlir::FailureOr<mlir::Value> resizeWindowBasedOps(mlir::Value &value,
+      llvm::ArrayRef<int64_t> inputShape,
+      llvm::ArrayRef<int64_t> weightSpatialShape,
+      llvm::SmallVectorImpl<int64_t> &padding,
+      llvm::ArrayRef<int64_t> strides = {1, 1},
+      llvm::ArrayRef<int64_t> dilation = {0, 0});
+
   mlir::Value getConst(
       llvm::ArrayRef<int64_t> vec, llvm::ArrayRef<int64_t> shape);
   mlir::Value getConst(

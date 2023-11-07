@@ -200,31 +200,43 @@ mlir::FailureOr<mlir::Value> convertPoolOp(
   IndexExpr::getLiteral(shapeHelper.pads, pads);
 
   // reorder padding values
-  auto newPads = rewriter.getDenseI64ArrayAttr({pads[0],
-      pads[2] + ceilConstants[0], pads[1], pads[3] + ceilConstants[1]});
+  llvm::SmallVector<int64_t, 4> newPads{
+      pads[0], pads[2] + ceilConstants[0], pads[1], pads[3] + ceilConstants[1]};
 
   auto strides = rewriter.getDenseI64ArrayAttr(shapeHelper.strides);
 
-  auto newKernelShape = rewriter.getDenseI64ArrayAttr(
-      mlir::extractFromIntegerArrayAttr<int64_t>(kernelShape));
+  auto weightShapeVec = mlir::extractFromIntegerArrayAttr<int64_t>(kernelShape);
+  auto newKernelShape = rewriter.getDenseI64ArrayAttr(weightShapeVec);
+
+  // Resize input to fit all parameters without unused values
+  mlir::FailureOr<mlir::Value> resizedInput = tosaBuilder.resizeWindowBasedOps(
+      input, mlir::cast<mlir::RankedTensorType>(input.getType()).getShape(),
+      {weightShapeVec[0], weightShapeVec[1]}, newPads, shapeHelper.strides,
+      shapeHelper.dilations);
+
+  if (failed(resizedInput))
+    return rewriter.notifyMatchFailure(
+        op, "could not resize input to match parameters");
+
+  auto newPadsAttr = rewriter.getDenseI64ArrayAttr(newPads);
 
   static_assert(std::is_same<TOSAPoolOp, mlir::tosa::MaxPool2dOp>::value ||
                     std::is_same<TOSAPoolOp, mlir::tosa::AvgPool2dOp>::value,
       "Expected either tosa::MaxPool2dOp or tosa::AvgPool2dOp");
   if constexpr (std::is_same<TOSAPoolOp, mlir::tosa::MaxPool2dOp>::value) {
-    input = tosa::CreateOpAndInfer<TOSAPoolOp>(
-        rewriter, loc, newResultType, input, newKernelShape, strides, newPads)
+    input = tosa::CreateOpAndInfer<TOSAPoolOp>(rewriter, loc, newResultType,
+        *resizedInput, newKernelShape, strides, newPadsAttr)
                 .getResult();
   } else if constexpr (std::is_same<TOSAPoolOp,
                            mlir::tosa::AvgPool2dOp>::value) {
     mlir::TypeAttr accType;
-    if (failed(tosa::getAvgPool2dAccType(rewriter, input, accType))) {
+    if (failed(tosa::getAvgPool2dAccType(rewriter, *resizedInput, accType))) {
       (void)rewriter.notifyMatchFailure(
           op, "Failed to get accumulator type for pooling");
       return mlir::failure();
     }
     input = tosa::CreateOpAndInfer<TOSAPoolOp>(rewriter, loc, newResultType,
-        input, newKernelShape, strides, newPads, accType)
+        *resizedInput, newKernelShape, strides, newPadsAttr, accType)
                 .getResult();
   }
 
